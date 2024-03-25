@@ -25,7 +25,7 @@ trakt.connect().then(async () => {
     if (top10.name) {
       listName = top10.name.toLowerCase().replace(/\s+/g, '-');
     } else {
-      listName = `${top10.platform}-${top10.location}-top10-${top10.type !== 'both' ? `${top10.type}-`}${top10.fallback === false ? 'without-fallback' : `with-${top10.fallback}-fallback`}`;
+      listName = `${top10.platform}-${top10.location}-top10${top10.type !== 'both' ? `-${top10.type}-` : '-'}${top10.fallback === false ? 'without-fallback' : `with-${top10.fallback}-fallback`}`;
     }
 
     if (top10.type === 'movies' || top10.type === 'both') {
