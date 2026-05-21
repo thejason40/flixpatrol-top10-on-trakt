@@ -55,9 +55,15 @@ export const FlixPatrolTop10Schema = z.object({
   limit: z.number().min(1, 'limit must be >= 1'),
   type: FlixPatrolConfigTypeSchema,
   name: z.string().optional(),
+  traktListName: z.string().optional(),
   normalizeName: z.boolean().optional(),
   kids: z.boolean().optional(),
-});
+  tmdbListId: z.number().int().min(0).optional(),
+  tmdbUpdateBanner: z.boolean().optional(),
+}).transform(({ name, traktListName, ...rest }) => ({
+  ...rest,
+  traktListName: traktListName ?? name,
+}));
 
 export const FlixPatrolPopularSchema = z.object({
   platform: FlixPatrolPopularPlatformSchema,
@@ -65,8 +71,14 @@ export const FlixPatrolPopularSchema = z.object({
   limit: z.number().min(1).max(100, 'limit must be between 1 and 100'),
   type: FlixPatrolConfigTypeSchema,
   name: z.string().optional(),
+  traktListName: z.string().optional(),
   normalizeName: z.boolean().optional(),
-});
+  tmdbListId: z.number().int().min(0).optional(),
+  tmdbUpdateBanner: z.boolean().optional(),
+}).transform(({ name, traktListName, ...rest }) => ({
+  ...rest,
+  traktListName: traktListName ?? name,
+}));
 
 const currentYear = new Date().getFullYear();
 
@@ -77,12 +89,18 @@ export const FlixPatrolMostWatchedSchema = z.object({
   type: FlixPatrolConfigTypeSchema,
   year: z.number().min(2023).max(currentYear, `year must be between 2023 and ${currentYear}`),
   name: z.string().optional(),
+  traktListName: z.string().optional(),
   normalizeName: z.boolean().optional(),
   premiere: z.number().min(1980).max(currentYear, `premiere must be between 1980 and ${currentYear}`).optional(),
   country: FlixPatrolTop10LocationSchema.optional(),
   original: z.boolean().optional(),
   orderByViews: z.boolean().optional(),
-});
+  tmdbListId: z.number().int().min(0).optional(),
+  tmdbUpdateBanner: z.boolean().optional(),
+}).transform(({ name, traktListName, ...rest }) => ({
+  ...rest,
+  traktListName: traktListName ?? name,
+}));
 
 export const flixpatrolMostHoursPeriod = ['total', 'first-week', 'first-month'] as const;
 export const flixpatrolMostHoursLanguage = ['all', 'english', 'non-english'] as const;
@@ -97,8 +115,14 @@ export const FlixPatrolMostHoursSchema = z.object({
   period: FlixPatrolMostHoursPeriodSchema,
   language: FlixPatrolMostHoursLanguageSchema.optional().default('all'),
   name: z.string().optional(),
+  traktListName: z.string().optional(),
   normalizeName: z.boolean().optional(),
-});
+  tmdbListId: z.number().int().min(0).optional(),
+  tmdbUpdateBanner: z.boolean().optional(),
+}).transform(({ name, traktListName, ...rest }) => ({
+  ...rest,
+  traktListName: traktListName ?? name,
+}));
 
 export const TraktOptionsSchema = z.object({
   saveFile: z.string(),
@@ -112,6 +136,10 @@ export const CacheOptionsSchema = z.object({
   ttl: z.number(),
 });
 
+export const TmdbOptionsSchema = z.object({
+  accessToken: z.string(),
+});
+
 // Infer types from schemas
 export type FlixPatrolTop10 = z.infer<typeof FlixPatrolTop10Schema>;
 export type FlixPatrolPopular = z.infer<typeof FlixPatrolPopularSchema>;
@@ -121,3 +149,4 @@ export type FlixPatrolMostHoursPeriod = z.infer<typeof FlixPatrolMostHoursPeriod
 export type FlixPatrolMostHoursLanguage = z.infer<typeof FlixPatrolMostHoursLanguageSchema>;
 export type TraktAPIOptions = z.infer<typeof TraktOptionsSchema>;
 export type CacheOptions = z.infer<typeof CacheOptionsSchema>;
+export type TmdbOptions = z.infer<typeof TmdbOptionsSchema>;

@@ -12,7 +12,7 @@ import type {
 import Trakt from 'trakt.tv';
 import fs from 'fs';
 import { logger, Utils, TraktError } from '../Utils';
-import type { TraktAPIOptions, TraktTVIds } from '../types';
+import type { TraktAPIOptions, TraktTVIds, TraktItemRef } from '../types';
 
 interface TraktAPIRuntimeOptions extends TraktAPIOptions {
   dryRun?: boolean;
@@ -55,8 +55,7 @@ export class TraktAPI {
       logger.info(`No trakt file ${this.traktSaveFile} found, initializing a new trakt connection`);
       try {
         const traktPoll = await this.trakt.get_codes();
-        logger.info(`Please open the verification url: ${traktPoll.verification_url}`);
-        logger.info(`And enter the following code: ${traktPoll.user_code}`);
+        logger.info(`Please open the verification url: ${traktPoll.verification_url}/${traktPoll.user_code}`);
         await this.trakt.poll_access(traktPoll);
         logger.info('Your are now connected to Trakt');
         const token = this.trakt.export_token();
@@ -177,8 +176,12 @@ export class TraktAPI {
     }
     logger.info(`Adding ${traktTVIDs.length} ${type} into Trakt list "${list.name}"`);
     const toAdd: { ids: TraktIds }[] = [];
-    traktTVIDs.forEach((traktTVID) => {
-      toAdd.push({ ids: { trakt: traktTVID } });
+    traktTVIDs.forEach((ref: TraktItemRef) => {
+      if ('trakt' in ref) {
+        toAdd.push({ ids: { trakt: ref.trakt } });
+      } else {
+        toAdd.push({ ids: { tmdb: ref.tmdb } as unknown as TraktIds });
+      }
     });
     logger.silly(`Trakt id items to add: ${JSON.stringify(toAdd)}`)
     const body: UsersListItemsAddRemove = {
