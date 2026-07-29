@@ -4,6 +4,7 @@ build/
 bin/
 browser/
 config/local.json
+config/.chrome-profile/
 .trakt
 .cache/
 .reports/

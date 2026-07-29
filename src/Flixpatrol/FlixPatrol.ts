@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import Cache, { FileSystemCache } from 'file-system-cache';
-import { Impit } from 'impit';
+import { chromium } from 'patchright-core';
+import type { BrowserContext } from 'patchright-core';
 import { logger, FlixPatrolError } from '../Utils';
 import type { TraktTVId, TraktTVIds, TraktItemRef, TmdbMediaItems, TmdbMediaItem } from '../types';
 import { TraktAPI } from '../Trakt';
@@ -41,17 +42,10 @@ export class FlixPatrol {
 
   private readonly movieTmdbCache: FileSystemCache | null = null;
 
-  private readonly impit: Impit;
-
-  private readonly cfClearance: string | undefined;
+  private context: BrowserContext | null = null;
 
   constructor(cacheOptions: CacheOptions, options: FlixPatrolOptions = {}) {
     this.options.url = options.url || 'https://flixpatrol.com';
-    this.impit = new Impit({ browser: 'chrome', timeout: 30000 });
-    this.cfClearance = process.env.CF_CLEARANCE || undefined;
-    if (this.cfClearance) {
-      logger.info('Using CF_CLEARANCE cookie for FlixPatrol requests');
-    }
     if (cacheOptions.enabled) {
       this.tvCache = Cache({
         basePath: `${cacheOptions.savePath}/tv-shows`,
@@ -92,24 +86,59 @@ export class FlixPatrol {
   // eslint-disable-next-line max-len
   public static isFlixPatrolType = (x: string): x is FlixPatrolConfigType => (flixpatrolConfigType as readonly string[]).includes(x);
 
+  private async getBrowserContext(): Promise<BrowserContext> {
+    if (!this.context) {
+      logger.info('Launching Chrome for FlixPatrol scraping');
+      try {
+        // Patchright best practices: persistent profile, real Chrome, no custom
+        // UA/flags/viewport. The persistent profile keeps Cloudflare's clearance
+        // cookie between runs so the challenge is only solved once.
+        this.context = await chromium.launchPersistentContext('./config/.chrome-profile', {
+          channel: 'chrome',
+          headless: process.env.FLIXPATROL_HEADLESS === 'true',
+          viewport: null,
+        });
+      } catch (err) {
+        throw new FlixPatrolError(`Failed to launch Chrome: ${(err as Error).message}. Ensure Google Chrome is installed.`);
+      }
+    }
+    return this.context;
+  }
+
+  public async close(): Promise<void> {
+    if (this.context) {
+      await this.context.close();
+      this.context = null;
+    }
+  }
+
+  private static isCloudflareChallenge(title: string): boolean {
+    return title === 'Just a moment...' || title.startsWith('Attention Required!');
+  }
+
   public async getFlixPatrolHTMLPage(path: string): Promise<string | null> {
     const url = `${this.options.url}${path}`;
     logger.silly(`Accessing URL: ${url}`);
 
+    const ctx = await this.getBrowserContext();
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+      const page = await ctx.newPage();
       try {
-        const fetchOptions = this.cfClearance
-          ? { headers: { Cookie: `cf_clearance=${this.cfClearance}` } }
-          : undefined;
-        const res = await this.impit.fetch(url, fetchOptions);
-        logger.silly(`Status code: ${res.status}`);
-        if (res.status === 200) {
-          return await res.text();
+        const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        logger.silly(`Status code: ${response?.status() ?? 0}`);
+
+        if (FlixPatrol.isCloudflareChallenge(await page.title())) {
+          logger.info('Cloudflare challenge detected, waiting for it to resolve (click the checkbox if one appears)');
+          await page.waitForFunction(
+            () => !document.title.startsWith('Just a moment') && !document.title.startsWith('Attention Required'),
+            undefined,
+            { timeout: 60000 },
+          );
+          await page.waitForLoadState('domcontentloaded');
+          logger.info('Cloudflare challenge passed');
         }
-        if (attempt === MAX_RETRIES) {
-          return null;
-        }
-        logger.warn(`Retry attempt ${attempt} for ${url}: HTTP ${res.status}`);
+
+        return await page.content();
       } catch (error) {
         if (attempt === MAX_RETRIES) {
           logger.error(`Error getting flixPatrolHTMLPage: ${error}`);
@@ -117,6 +146,8 @@ export class FlixPatrol {
         }
         const message = error instanceof Error ? error.message : String(error);
         logger.warn(`Retry attempt ${attempt} for ${url}: ${message}`);
+      } finally {
+        await page.close();
       }
       // Exponential backoff: 1s, 2s, 4s
       await new Promise((resolve) => { setTimeout(resolve, 2 ** (attempt - 1) * 1000); });
