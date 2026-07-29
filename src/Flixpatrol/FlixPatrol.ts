@@ -43,9 +43,15 @@ export class FlixPatrol {
 
   private readonly impit: Impit;
 
+  private readonly cfClearance: string | undefined;
+
   constructor(cacheOptions: CacheOptions, options: FlixPatrolOptions = {}) {
     this.options.url = options.url || 'https://flixpatrol.com';
     this.impit = new Impit({ browser: 'chrome', timeout: 30000 });
+    this.cfClearance = process.env.CF_CLEARANCE || undefined;
+    if (this.cfClearance) {
+      logger.info('Using CF_CLEARANCE cookie for FlixPatrol requests');
+    }
     if (cacheOptions.enabled) {
       this.tvCache = Cache({
         basePath: `${cacheOptions.savePath}/tv-shows`,
@@ -92,7 +98,10 @@ export class FlixPatrol {
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
       try {
-        const res = await this.impit.fetch(url);
+        const fetchOptions = this.cfClearance
+          ? { headers: { Cookie: `cf_clearance=${this.cfClearance}` } }
+          : undefined;
+        const res = await this.impit.fetch(url, fetchOptions);
         logger.silly(`Status code: ${res.status}`);
         if (res.status === 200) {
           return await res.text();
