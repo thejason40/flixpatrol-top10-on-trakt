@@ -91,8 +91,21 @@ export class FlixPatrol {
 
   private async getBrowserContext(): Promise<BrowserContext> {
     if (!this.context) {
-      this.browser = await chromium.launch({ headless: true, channel: 'chrome' });
-      this.context = await this.browser.newContext();
+      logger.info('Launching Chrome for FlixPatrol scraping');
+      try {
+        this.browser = await chromium.launch({ headless: true, channel: 'chrome' });
+      } catch (err) {
+        throw new FlixPatrolError(`Failed to launch Chrome: ${(err as Error).message}. Ensure Google Chrome is installed.`);
+      }
+      this.context = await this.browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+        viewport: { width: 1920, height: 1080 },
+        locale: 'en-GB',
+      });
+      // Mask the automation flag that bot detection systems check for
+      await this.context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      });
     }
     return this.context;
   }
