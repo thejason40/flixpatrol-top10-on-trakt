@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import Cache, { FileSystemCache } from 'file-system-cache';
-import { Impit } from 'impit';
+import { chromium } from 'playwright-core';
+import type { Browser, BrowserContext } from 'playwright-core';
 import { logger, FlixPatrolError } from '../Utils';
 import type { TraktTVId, TraktTVIds, TraktItemRef, TmdbMediaItems, TmdbMediaItem } from '../types';
 import { TraktAPI } from '../Trakt';
@@ -42,12 +43,12 @@ export class FlixPatrol {
 
   private readonly movieTmdbCache: FileSystemCache | null = null;
 
-  private readonly impit: Impit;
+  private browser: Browser | null = null;
+
+  private context: BrowserContext | null = null;
 
   constructor(cacheOptions: CacheOptions, options: FlixPatrolOptions = {}) {
     this.options.url = options.url || 'https://flixpatrol.com';
-    // Use Impit with Firefox browser impersonation to bypass Cloudflare's TLS fingerprint check.
-    this.impit = new Impit({ browser: 'firefox', timeout: 30000 });
     if (cacheOptions.enabled) {
       this.tvCache = Cache({
         basePath: `${cacheOptions.savePath}/tv-shows`,
@@ -88,34 +89,37 @@ export class FlixPatrol {
   // eslint-disable-next-line max-len
   public static isFlixPatrolType = (x: string): x is FlixPatrolConfigType => (flixpatrolConfigType as readonly string[]).includes(x);
 
-  /**
-   * Get one FlixPatrol HTML page and return it as a string
-   * @private
-   * @param path
-   */
+  private async getBrowserContext(): Promise<BrowserContext> {
+    if (!this.context) {
+      this.browser = await chromium.launch({ headless: true, channel: 'chrome' });
+      this.context = await this.browser.newContext();
+    }
+    return this.context;
+  }
+
+  public async close(): Promise<void> {
+    if (this.context) { await this.context.close(); this.context = null; }
+    if (this.browser) { await this.browser.close(); this.browser = null; }
+  }
+
   public async getFlixPatrolHTMLPage(path: string): Promise<string | null> {
     const url = `${this.options.url}${path}`;
     logger.silly(`Accessing URL: ${url}`);
 
+    const ctx = await this.getBrowserContext();
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+      const page = await ctx.newPage();
       try {
-        const res = await this.impit.fetch(url, {
-          headers: {
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-GB,en;q=0.5',
-            'Cache-Control': 'no-cache',
-            Pragma: 'no-cache',
-            'Upgrade-Insecure-Requests': '1',
-          },
-        });
-        logger.silly(`Status code: ${res.status}`);
-        if (res.status === 200) {
-          return await res.text();
+        const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        const status = response?.status() ?? 0;
+        logger.silly(`Status code: ${status}`);
+        if (status === 200) {
+          return await page.content();
         }
-        if (!RETRY_STATUS_CODES.has(res.status) || attempt === MAX_RETRIES) {
+        if (!RETRY_STATUS_CODES.has(status) || attempt === MAX_RETRIES) {
           return null;
         }
-        logger.warn(`Retry attempt ${attempt} for ${url}: HTTP ${res.status}`);
+        logger.warn(`Retry attempt ${attempt} for ${url}: HTTP ${status}`);
       } catch (error) {
         if (attempt === MAX_RETRIES) {
           logger.error(`Error getting flixPatrolHTMLPage: ${error}`);
@@ -123,6 +127,8 @@ export class FlixPatrol {
         }
         const message = error instanceof Error ? error.message : String(error);
         logger.warn(`Retry attempt ${attempt} for ${url}: ${message}`);
+      } finally {
+        await page.close();
       }
       // Exponential backoff: 1s, 2s, 4s
       await new Promise((resolve) => { setTimeout(resolve, 2 ** (attempt - 1) * 1000); });
