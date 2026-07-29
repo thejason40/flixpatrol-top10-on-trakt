@@ -41,6 +41,8 @@
     "config": "^4.4.1",
     "file-system-cache": "^2.4.7",
     "playwright-core": "^1.0.0",
+    "playwright-extra": "^4.0.0",
+    "puppeteer-extra-plugin-stealth": "^2.0.0",
     "jsdom": "^29.1.1",
     "trakt.tv": "^8.2.0",
     "winston": "^3.19.0",
