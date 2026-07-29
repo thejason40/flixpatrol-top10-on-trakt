@@ -92,9 +92,14 @@ export class FlixPatrol {
     if (!this.context) {
       logger.info('Launching Chrome for FlixPatrol scraping');
       try {
-        // Run Chrome visible (not headless) so Cloudflare's bot challenge auto-solves.
-        // A Chrome window will briefly appear while pages are being fetched.
-        this.browser = await chromium.launch({ headless: false, channel: 'chrome' });
+        // Run Chrome visible without Playwright's default automation flags so
+        // Cloudflare's Turnstile challenge cannot detect the browser as automated.
+        this.browser = await chromium.launch({
+          headless: false,
+          channel: 'chrome',
+          args: ['--disable-blink-features=AutomationControlled'],
+          ignoreDefaultArgs: ['--enable-automation'],
+        });
       } catch (err) {
         throw new FlixPatrolError(`Failed to launch Chrome: ${(err as Error).message}. Ensure Google Chrome is installed.`);
       }
