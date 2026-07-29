@@ -44,6 +44,10 @@ export class FlixPatrol {
 
   private context: BrowserContext | null = null;
 
+  private contextVisible = false;
+
+  private needVisibleWindow = false;
+
   constructor(cacheOptions: CacheOptions, options: FlixPatrolOptions = {}) {
     this.options.url = options.url || 'https://flixpatrol.com';
     if (cacheOptions.enabled) {
@@ -86,18 +90,30 @@ export class FlixPatrol {
   // eslint-disable-next-line max-len
   public static isFlixPatrolType = (x: string): x is FlixPatrolConfigType => (flixpatrolConfigType as readonly string[]).includes(x);
 
-  private async getBrowserContext(): Promise<BrowserContext> {
+  private async getBrowserContext(visible: boolean): Promise<BrowserContext> {
+    if (this.context && this.contextVisible !== visible) {
+      await this.context.close();
+      this.context = null;
+    }
     if (!this.context) {
-      logger.info('Launching Chrome for FlixPatrol scraping');
+      logger.info(visible
+        ? 'Launching Chrome (visible) so the Cloudflare challenge can be solved'
+        : 'Launching Chrome in the background for FlixPatrol scraping');
       try {
         // Patchright best practices: persistent profile, real Chrome, no custom
-        // UA/flags/viewport. The persistent profile keeps Cloudflare's clearance
+        // UA/viewport. The persistent profile keeps Cloudflare's clearance
         // cookie between runs so the challenge is only solved once.
+        // True headless is avoided because HeadlessChrome is advertised in the
+        // user agent, which triggers Cloudflare and invalidates the clearance
+        // cookie. Instead the window is opened far off-screen: fully rendered
+        // and indistinguishable from a normal session, but never seen.
         this.context = await chromium.launchPersistentContext('./config/.chrome-profile', {
           channel: 'chrome',
-          headless: process.env.FLIXPATROL_HEADLESS === 'true',
+          headless: false,
           viewport: null,
+          args: visible ? [] : ['--window-position=-32000,-32000'],
         });
+        this.contextVisible = visible;
       } catch (err) {
         throw new FlixPatrolError(`Failed to launch Chrome: ${(err as Error).message}. Ensure Google Chrome is installed.`);
       }
@@ -120,32 +136,47 @@ export class FlixPatrol {
     const url = `${this.options.url}${path}`;
     logger.silly(`Accessing URL: ${url}`);
 
-    const ctx = await this.getBrowserContext();
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+      const ctx = await this.getBrowserContext(this.needVisibleWindow);
       const page = await ctx.newPage();
+      let challengeDetected = false;
       try {
         const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         logger.silly(`Status code: ${response?.status() ?? 0}`);
 
         if (FlixPatrol.isCloudflareChallenge(await page.title())) {
-          logger.info('Cloudflare challenge detected, waiting for it to resolve (click the checkbox if one appears)');
+          challengeDetected = true;
+          // In the background window give the challenge a short time to
+          // auto-resolve; in a visible window allow time for a manual click.
+          const challengeTimeout = this.contextVisible ? 60000 : 15000;
+          logger.info(this.contextVisible
+            ? 'Cloudflare challenge detected — click the checkbox in the Chrome window if one appears'
+            : 'Cloudflare challenge detected, waiting for it to auto-resolve');
           await page.waitForFunction(
             () => !document.title.startsWith('Just a moment') && !document.title.startsWith('Attention Required'),
             undefined,
-            { timeout: 60000 },
+            { timeout: challengeTimeout },
           );
           await page.waitForLoadState('domcontentloaded');
           logger.info('Cloudflare challenge passed');
         }
 
-        return await page.content();
+        const html = await page.content();
+        // Challenge cleared: clearance cookie is now in the profile, so the
+        // window no longer needs to be visible for subsequent pages.
+        this.needVisibleWindow = false;
+        return html;
       } catch (error) {
-        if (attempt === MAX_RETRIES) {
+        if (challengeDetected && !this.contextVisible) {
+          logger.warn('Challenge did not auto-resolve in the background, opening a visible Chrome window');
+          this.needVisibleWindow = true;
+        } else if (attempt === MAX_RETRIES) {
           logger.error(`Error getting flixPatrolHTMLPage: ${error}`);
           return null;
+        } else {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn(`Retry attempt ${attempt} for ${url}: ${message}`);
         }
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn(`Retry attempt ${attempt} for ${url}: ${message}`);
       } finally {
         await page.close();
       }
