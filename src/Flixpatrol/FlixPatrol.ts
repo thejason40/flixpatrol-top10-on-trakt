@@ -46,8 +46,8 @@ export class FlixPatrol {
 
   constructor(cacheOptions: CacheOptions, options: FlixPatrolOptions = {}) {
     this.options.url = options.url || 'https://flixpatrol.com';
-    // Use Impit with Chrome browser impersonation to bypass Cloudflare's TLS fingerprint check.
-    this.impit = new Impit({ browser: 'chrome', timeout: 30000 });
+    // Use Impit with Firefox browser impersonation to bypass Cloudflare's TLS fingerprint check.
+    this.impit = new Impit({ browser: 'firefox', timeout: 30000 });
     if (cacheOptions.enabled) {
       this.tvCache = Cache({
         basePath: `${cacheOptions.savePath}/tv-shows`,
@@ -99,7 +99,15 @@ export class FlixPatrol {
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
       try {
-        const res = await this.impit.fetch(url);
+        const res = await this.impit.fetch(url, {
+          headers: {
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-GB,en;q=0.5',
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+            'Upgrade-Insecure-Requests': '1',
+          },
+        });
         logger.silly(`Status code: ${res.status}`);
         if (res.status === 200) {
           return await res.text();
