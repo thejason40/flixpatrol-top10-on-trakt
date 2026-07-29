@@ -248,7 +248,6 @@ const run = async () => {
     }
   }
 
-  await flixpatrol.close();
 };
 
 run().catch((err: unknown) => {
