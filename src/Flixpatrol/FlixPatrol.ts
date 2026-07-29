@@ -92,7 +92,9 @@ export class FlixPatrol {
     if (!this.context) {
       logger.info('Launching Chrome for FlixPatrol scraping');
       try {
-        this.browser = await chromium.launch({ headless: true, channel: 'chrome' });
+        // Run Chrome visible (not headless) so Cloudflare's bot challenge auto-solves.
+        // A Chrome window will briefly appear while pages are being fetched.
+        this.browser = await chromium.launch({ headless: false, channel: 'chrome' });
       } catch (err) {
         throw new FlixPatrolError(`Failed to launch Chrome: ${(err as Error).message}. Ensure Google Chrome is installed.`);
       }
@@ -129,9 +131,9 @@ export class FlixPatrol {
         // Chrome browser via JS, then redirects back to the original URL.
         // We need to wait for that resolution rather than bailing out on the 403.
         if (await page.title() === 'Just a moment...') {
-          logger.debug('Cloudflare challenge detected, waiting up to 20s for auto-resolution...');
+          logger.info('Cloudflare challenge detected — if a CAPTCHA appears in the Chrome window, solve it manually.');
           try {
-            await page.waitForFunction(() => document.title !== 'Just a moment...', { timeout: 20000 });
+            await page.waitForFunction(() => document.title !== 'Just a moment...', { timeout: 60000 });
             await page.waitForLoadState('load', { timeout: 10000 });
           } catch {
             logger.warn(`Cloudflare challenge did not resolve for ${url} (attempt ${attempt})`);
