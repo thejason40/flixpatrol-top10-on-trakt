@@ -123,21 +123,36 @@ export class FlixPatrol {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
       const page = await ctx.newPage();
       try {
-        const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        const status = response?.status() ?? 0;
-        logger.info(`HTTP ${status} from ${url}`);
-        if (status === 200) {
+        const response = await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+        const initialStatus = response?.status() ?? 0;
+
+        // Cloudflare Managed Challenge: "Just a moment..." page auto-solves in a real
+        // Chrome browser via JS, then redirects back to the original URL.
+        // We need to wait for that resolution rather than bailing out on the 403.
+        if (await page.title() === 'Just a moment...') {
+          logger.debug('Cloudflare challenge detected, waiting up to 20s for auto-resolution...');
+          try {
+            await page.waitForFunction(() => document.title !== 'Just a moment...', { timeout: 20000 });
+            await page.waitForLoadState('load', { timeout: 10000 });
+          } catch {
+            logger.warn(`Cloudflare challenge did not resolve for ${url} (attempt ${attempt})`);
+            if (attempt < MAX_RETRIES) {
+              await page.close();
+              await new Promise((resolve) => { setTimeout(resolve, 2 ** (attempt - 1) * 1000); });
+              continue;
+            }
+            return null;
+          }
+        }
+
+        const finalTitle = await page.title();
+        logger.info(`Page title: "${finalTitle}" (initial HTTP ${initialStatus})`);
+
+        if (finalTitle === 'Just a moment...') {
+          if (attempt === MAX_RETRIES) return null;
+        } else {
           return await page.content();
         }
-        // Log response headers and body snippet to diagnose blocks
-        const headers = response?.headers() ?? {};
-        logger.warn(`Response headers: ${JSON.stringify(headers)}`);
-        const bodySnippet = (await page.content()).slice(0, 500).replace(/\s+/g, ' ');
-        logger.warn(`Response body (first 500 chars): ${bodySnippet}`);
-        if (!RETRY_STATUS_CODES.has(status) || attempt === MAX_RETRIES) {
-          return null;
-        }
-        logger.warn(`Retry attempt ${attempt} for ${url}: HTTP ${status}`);
       } catch (error) {
         if (attempt === MAX_RETRIES) {
           logger.error(`Error getting flixPatrolHTMLPage: ${error}`);
