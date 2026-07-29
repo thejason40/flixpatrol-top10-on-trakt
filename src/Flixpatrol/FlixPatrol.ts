@@ -27,7 +27,6 @@ import {
   flixpatrolConfigType,
 } from '../types';
 
-const RETRY_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const MAX_RETRIES = 3;
 
 type FlixPatrolMatchResult = string;
