@@ -47,7 +47,15 @@ export class TraktAPI {
         fs.unlinkSync(this.traktSaveFile);
         return this.connect();
       }
-      const newToken = await this.trakt.import_token(token);
+      let newToken: TraktAccessExport;
+      try {
+        newToken = await this.trakt.import_token(token);
+      } catch (importErr) {
+        logger.error(`Failed to refresh Trakt token: ${(importErr as Error).message}`);
+        logger.warn(`Deleting expired token file ${this.traktSaveFile} and reinitializing`);
+        fs.unlinkSync(this.traktSaveFile);
+        return this.connect();
+      }
       logger.debug(`Trakt informations from file ${this.traktSaveFile} loaded`);
       fs.writeFileSync(this.traktSaveFile, JSON.stringify(newToken));
       logger.debug(`Trakt informations saved to file ${this.traktSaveFile}`);

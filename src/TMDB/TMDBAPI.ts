@@ -68,7 +68,7 @@ export class TMDBAPI {
     }
 
     logger.info(`Clearing TMDB list ${listId}`);
-    await this.request('GET', `/4/list/${listId}/clear`);
+    await this.request('GET', `/4/list/${listId}/clear?confirm=true`);
 
     logger.info(`Adding ${items.length} item(s) to TMDB list ${listId}`);
     await this.request('POST', `/4/list/${listId}/items`, { items });
