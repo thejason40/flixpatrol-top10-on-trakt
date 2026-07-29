@@ -117,7 +117,7 @@ export class FlixPatrol {
 
   public async getFlixPatrolHTMLPage(path: string): Promise<string | null> {
     const url = `${this.options.url}${path}`;
-    logger.silly(`Accessing URL: ${url}`);
+    logger.info(`Fetching: ${url}`);
 
     const ctx = await this.getBrowserContext();
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
@@ -125,10 +125,15 @@ export class FlixPatrol {
       try {
         const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         const status = response?.status() ?? 0;
-        logger.silly(`Status code: ${status}`);
+        logger.info(`HTTP ${status} from ${url}`);
         if (status === 200) {
           return await page.content();
         }
+        // Log response headers and body snippet to diagnose blocks
+        const headers = response?.headers() ?? {};
+        logger.warn(`Response headers: ${JSON.stringify(headers)}`);
+        const bodySnippet = (await page.content()).slice(0, 500).replace(/\s+/g, ' ');
+        logger.warn(`Response body (first 500 chars): ${bodySnippet}`);
         if (!RETRY_STATUS_CODES.has(status) || attempt === MAX_RETRIES) {
           return null;
         }
